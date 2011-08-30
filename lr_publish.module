@@ -227,8 +227,16 @@ function _lr_send_to_registry($nid, $json, $service_num = 0) {
   curl_setopt_array($ch, $curl_options);
   $result=curl_exec($ch);
 
-  if ($result)
-   _lr_update_submission_status($nid, $result);
+  if ($result) {
+    $result = _lr_update_submission_status($nid, $result);
+  }
+    
+  if ($result) {    
+    drupal_set_message("Node published to the registry.", "status");
+  } else {
+    drupal_set_message("Error publishing node to registry.", "warning");
+  }
+    
 
 }
 
@@ -405,10 +413,12 @@ function _lr_update_submission_status($nid, $result) {
         // write it to the database
         drupal_write_record('lr_publish', $data);
       }
+      return true;
     }
     else {
       watchdog('lr_publish', "Error publishing node ID %nid to the registry.  Full response: %msg",
           array ('%nid' => $nid,'%msg' => $result));
+      return false;
     }
 
   }
