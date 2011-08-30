@@ -53,6 +53,16 @@ function lr_publish_admin_settings() {
     '#description' => t('Identifies the submitter of a Learning Registry resource document.'),
     '#required' => TRUE,
   );
+  
+  $form['lr_publish_tos'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Terms of Service URL'),
+    '#size' => 128,
+    '#maxlength' => 1024,
+    '#default_value' => variable_get('lr_publish_tos', NULL),
+    '#description' => t('Specifies the terms of service URL for the items submitted to the Learning Registry.'),
+    '#required' => TRUE,
+  );  
 
   $form['lr_publish_node_types'] = array(
     '#type' => 'checkboxes',
