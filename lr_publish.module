@@ -153,6 +153,8 @@ function _lr_get_content_info(&$node) {
   // resource_data_type is currently hardcoded, will be fixed in a later version
   $content_info['resource_data_type'] = 'metadata';
   $content_info['submitter'] = variable_get('lr_publish_submitter', NULL);
+  $content_info['tos'] = variable_get('lr_publish_tos', NULL);
+  
   // currently set curator and submitter the same, once we get a better sense
   // of what each field means, this will change
   $content_info['curator'] = $content_info['submitter'];
@@ -253,7 +255,6 @@ function _lr_def_resource_data ($content_info) {
   define("LR_DOC_TYPE", "resource_data");
   define("LR_DOC_VERSION", "0.21.0");
   define("LR_SUBMITTER_TYPE", "agent");
-  define("LR_SUBMISSION_TOS", "yes");
   // commented since we aren't signing submissions
   // define("LR_SIGNING_METHOD", "LR-PGP.1.0");
   define("LR_PAYLOAD_PLACEMENT", "inline");
@@ -289,9 +290,7 @@ function _lr_def_resource_data ($content_info) {
   $identity->submitter_type = LR_SUBMITTER_TYPE;
   $identity->submitter = $content_info["submitter"];
 
-  // not sure what the value for this should be, does it depend on the LR
-  // node,currently set to "yes" to indicate agreement?
-  $tos->submission_TOS = LR_SUBMISSION_TOS;
+  $tos->submission_TOS = $content_info["tos"];;
 
   //TODO: extract these foreach calls into their own function
   // Add the optional keys / objects if they are passed in $content_info
