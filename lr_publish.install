@@ -69,6 +69,13 @@ function lr_publish_schema() {
         'not null' => TRUE,
         'default' => 0,
       ),
+        
+      'queued' => array(
+        'description' => t('Flag to determine if node is queued for processing.'),
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
 
       'docid' => array(
         'description' => t('The doc ID returned on successful submission to the Learning Registry.'),
