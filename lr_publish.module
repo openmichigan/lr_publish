@@ -91,14 +91,34 @@ function lr_publish_nodeapi(&$node, $op) {
 
 
 /**
+ * Implementation of hook_cron()
+ * 
+ * Reads unprocessed nodes from lr_publish table and attempts to push them to
+ * the Learning Registry.
+ */
+function lr_publish_cron() {
+  // Pull node IDs of records queued for processing
+  $records = db_query('SELECT nid FROM {lr_publish} WHERE queued = 1');
+
+  while ($record = db_fetch_array($records)) {
+    $node = node_load($record["nid"], NULL, TRUE);
+    _lr_publish_publish($node, TRUE);
+  }
+  
+}
+
+/**
  * Publish node metadata to specified Learning Registry node.
  *
  * @param object &$node
  *   A reference to the node object. We have to be very careful to not set
  *   anything, only read from the node object reference since the node
  *   reference allows us to edit the node content.
+ * 
+ * @param bool $headless
+ *   A flag to determine if this is called from cron (non-user session).
  */
-function _lr_publish_publish(&$node) {
+function _lr_publish_publish(&$node, $headless = FALSE) {
   $content_info = _lr_get_content_info(&$node);
   $resource_data = _lr_def_resource_data($content_info);
   $empty_submission = _lr_build_envelope();
@@ -108,7 +128,7 @@ function _lr_publish_publish(&$node) {
   $resource_post_payload = json_encode($prepared_submission);
   //watchdog('lr_publish', $resource_post_payload, array(), WATCHDOG_DEBUG);
 
-  _lr_send_to_registry($node->nid, $resource_post_payload);
+  _lr_send_to_registry($node->nid, $resource_post_payload, 0, $headless);
 }
 
 
@@ -137,7 +157,6 @@ function _lr_publish_update(&$node) {
   return;
 }
 
-
 /**
  * Return info we submit about nodes to the LR.
  *
@@ -148,7 +167,7 @@ function _lr_publish_update(&$node) {
  */
 function _lr_get_content_info(&$node) {
   $content_info = array();
-  $content_info['resource_locator'] = _lr_get_node_url($node->nid);
+  $content_info['resource_locator'] = _lr_get_node_url($node);
   // TODO: correctly specify resource data type
   // resource_data_type is currently hardcoded, will be fixed in a later version
   $content_info['resource_data_type'] = 'metadata';
@@ -172,17 +191,24 @@ function _lr_get_content_info(&$node) {
 
 
 /**
- * Return the absolute URL to a node.
+ * Return the absolute URL to a node.  If alias available, return alias as friendlier URL.
  *
  * @param int $nid
  *   The numerical node id.
  *
  * @return string $node_url
- *   The absolute URL to the node.
+ *   The absolute URL to the node.  If alias available, return alias.
  */
-function _lr_get_node_url($nid) {
-  $url = $GLOBALS['base_url'] . $GLOBALS['base_path'] . "node/" . $nid;
-  return $url;
+function _lr_get_node_url(&$node) {
+  
+  $nodePath = url("node/".$node->nid, array("absolute" => TRUE));
+  $aliasPath = drupal_lookup_path('alias',"node/".$node->nid);
+  if ($aliasPath) { 
+    $aliasPath = url($aliasPath, array("absolute" => TRUE));
+    $nodePath = $aliasPath; 
+  }
+  
+  return $nodePath;
 }
 
 /**
@@ -199,8 +225,10 @@ function _lr_get_node_url($nid) {
  *    0 - publish (default value)
  *    1 - update
  *    2 - delete
+ * @param bool $headless
+ *    A flag to determine if this is called from cron (non-user session).
  */
-function _lr_send_to_registry($nid, $json, $service_num = 0) {
+function _lr_send_to_registry($nid, $json, $service_num = 0, $headless = FALSE) {
   $services = array(
     'publish',
     'update',
@@ -228,15 +256,15 @@ function _lr_send_to_registry($nid, $json, $service_num = 0) {
 
   if ($result) {
     $result = _lr_update_submission_status($nid, $result);
-  }
     
-  if ($result) {    
-    drupal_set_message("Node published to the registry.", "status");
-  } else {
+    if (!$headless) {
+      $submissionURL = variable_get('lr_publish_node_url', NULL)."/harvest/getrecord?by_doc_ID=TRUE&request_id=".$result;
+      drupal_set_message('Node published to the registry. <a href="'.$submissionURL.'" target="_new">(View node on registry.)</a>', "status");
+    }
+  } elseif (!$headless) {
     drupal_set_message("Error publishing node to registry.", "warning");
   }
-    
-
+  
 }
 
 
@@ -250,7 +278,7 @@ function _lr_send_to_registry($nid, $json, $service_num = 0) {
 function _lr_def_resource_data ($content_info) {
   // values specified as immutable in the LR spec.
   define("LR_DOC_TYPE", "resource_data");
-  define("LR_DOC_VERSION", "0.21.0");
+  define("LR_DOC_VERSION", "0.23.0");
   define("LR_SUBMITTER_TYPE", "agent");
   // commented since we aren't signing submissions
   // define("LR_SIGNING_METHOD", "LR-PGP.1.0");
@@ -390,12 +418,20 @@ function _lr_update_submission_status($nid, $result) {
 
     if ($result_array->document_results[0]->OK) {
     // check to see if submission already in database
-      $submission_check_result = db_query('SELECT COUNT(nid) as CNT FROM {lr_publish} WHERE nid = %d', $nid);
-      $count = db_fetch_object($submission_check_result);
-
-      if ($count->CNT) {
-      // Record already exists, update timestamp
-        db_query('UPDATE {lr_publish} SET updated=%d WHERE nid = %d', time(), $nid);
+      $submission_check_result = db_query('SELECT * FROM {lr_publish} WHERE nid = %d', $nid);
+      $submission_record = db_fetch_object($submission_check_result);
+      
+      
+      // Check if this has been published before.  If no, set the published timestamp.  Else,
+      // the updated timestamp.
+      if ($submission_record) {
+        if ($submission_record->published==0) {
+          $sql = 'UPDATE {lr_publish} SET published=%d, docid=\'%s\', queued=0 WHERE nid = %d';
+        } else {
+          $sql = 'UPDATE {lr_publish} SET updated=%d, docid=\'%s\', queued=0 WHERE nid = %d';
+        }
+        
+        db_query($sql, time(), $result_array->document_results[0]->doc_ID, $nid);
       }
       else {
       // Insert new record
@@ -409,7 +445,7 @@ function _lr_update_submission_status($nid, $result) {
         // write it to the database
         drupal_write_record('lr_publish', $data);
       }
-      return true;
+      return $result_array->document_results[0]->doc_ID;
     }
     else {
       watchdog('lr_publish', "Error publishing node ID %nid to the registry.  Full response: %msg",
@@ -453,8 +489,8 @@ function _lr_create_dublincore_payload (&$node) {
   $element = $xmlDoc->createElementNS('http://purl.org/dc/elements/1.1/', 'date', $dateCreated);
   $dcNode->appendChild($element);
 
-  // Set the DC identifier to the node body.
-  $element = $xmlDoc->createElementNS('http://purl.org/dc/elements/1.1/', 'identifier', $node->path);
+  // Set the DC identifier to the absolute URL of the node.  
+  $element = $xmlDoc->createElementNS('http://purl.org/dc/elements/1.1/', 'identifier', _lr_get_node_url($node));
   $dcNode->appendChild($element);
   
   // Pretty format the XML before sending it to the LR.  Makes it easier to read and debug.  
