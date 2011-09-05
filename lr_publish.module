@@ -201,14 +201,11 @@ function _lr_get_content_info(&$node) {
  */
 function _lr_get_node_url(&$node) {
   
-  $nodePath = url("node/".$node->nid, array("absolute" => TRUE));
-  $aliasPath = drupal_lookup_path('alias',"node/".$node->nid);
-  if ($aliasPath) { 
-    $aliasPath = url($aliasPath, array("absolute" => TRUE));
-    $nodePath = $aliasPath; 
-  }
-  
-  return $nodePath;
+  // URL Type is an admin setting.  Return either alias or node ID.
+  if (variable_get('lr_publish_url_type', 0) == 1)
+    return url("node/".$node->nid, array("absolute" => TRUE, "alias" => FALSE));
+  else
+    return url("node/".$node->nid, array("absolute" => TRUE, "alias" => TRUE));
 }
 
 /**

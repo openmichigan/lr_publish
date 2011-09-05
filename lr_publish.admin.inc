@@ -62,8 +62,17 @@ function lr_publish_admin_settings() {
     '#default_value' => variable_get('lr_publish_tos', NULL),
     '#description' => t('Specifies the terms of service URL for the items submitted to the Learning Registry.'),
     '#required' => TRUE,
-  );  
-
+  );
+  
+  $form['lr_publish_url_type'] = array(
+    '#type' => 'radios',
+    '#title' => t('Publish URL'),
+    '#default_value' => variable_get('lr_publish_url_type', 0),
+    '#description' => t('Determines the URL reference to the published Drupal node.  Node ID is the internal Drupal node (node/1234).  Node alias is the alias provided for the node (blog/this-is-a-test).'),
+    '#options' => array(t('Node ID'), t('Node alias')),
+    '#required' => TRUE,
+  );
+  
   $form['lr_publish_node_types'] = array(
     '#type' => 'checkboxes',
     '#title' => t('Publish metadata for these content types'),
