@@ -63,12 +63,21 @@ function lr_publish_admin_settings() {
     '#description' => t('Specifies the terms of service URL for the items submitted to the Learning Registry.'),
     '#required' => TRUE,
   );
+
+  $form['lr_publish_queuing'] = array(
+    '#type' => 'radios',
+    '#title' => t('Immediate or Batch Publishing'),
+    '#default_value' => variable_get('lr_publish_queuing', 0),
+    '#description' => t('Selects if submissions to the Learning Registry will publish immediately or queued to publish when cron executes.'),
+    '#options' => array(t('Immediate'), t('Queued')),
+    '#required' => TRUE,
+  );
   
   $form['lr_publish_url_type'] = array(
     '#type' => 'radios',
-    '#title' => t('Publish URL'),
+    '#title' => t('Publish URL Type'),
     '#default_value' => variable_get('lr_publish_url_type', 0),
-    '#description' => t('Determines the URL reference to the published Drupal node.  Node ID is the internal Drupal node (node/1234).  Node alias is the alias provided for the node (blog/this-is-a-test).'),
+    '#description' => t('Determines the URL to the published Drupal node.  Node ID is the internal Drupal node (node/1234).  Node alias is the alias provided for the node (blog/this-is-a-test).'),
     '#options' => array(t('Node ID'), t('Node alias')),
     '#required' => TRUE,
   );

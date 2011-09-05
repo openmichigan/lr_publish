@@ -108,6 +108,27 @@ function lr_publish_cron() {
 }
 
 /**
+ * Implementation of hook_node_operations()
+ * 
+ * Allows for publishing using the bulk operations content page.
+ */
+function lr_publish_node_operations() {
+  return array(
+    'process_orders' => array(
+    'label' => 'Publish to Learning Registry',
+    'callback' => '_lr_publish_bulk_operations_publish',
+    'disabled' => TRUE,
+  ));
+}
+
+/**
+ * Callback function for lr_publish_node_operations()
+ */
+function _lr_publish_bulk_operations_publish() {
+  
+}
+
+/**
  * Publish node metadata to specified Learning Registry node.
  *
  * @param object &$node
