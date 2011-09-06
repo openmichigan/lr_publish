@@ -293,6 +293,12 @@ function _lr_send_to_registry($nid, $json, $service_num = 0, $headless = FALSE) 
   // file_put_contents("/tmp/foo.json", $json);
   curl_setopt_array($ch, $curl_options);
   $result=curl_exec($ch);
+  $error = curl_error($ch);
+  curl_close($ch);
+  
+  $submission_result = _lr_parse_result($result, $error);
+  
+  // dsm($submission_result);
 
   if ($result) {
     $result = _lr_update_submission_status($nid, $result);
@@ -502,6 +508,54 @@ function _lr_update_submission_status($nid, $result) {
   }
 }
 
+/** 
+ * Parse out result from Learning Registry submission
+ * 
+ * @param object $result
+ *    JSON array result from Learning Registry submission
+ * 
+ * @param string $error
+ *    Error string from curl (if error occured)
+ *
+ * @return object $submission_result
+ *    Array with status information from submission
+ */
+function _lr_parse_result($result, $error) {
+  $submission_result = array();
+  
+    if ($result) {
+      // We have something back from the Learning Registry service
+      $result_array = json_decode($result);
+
+      if ($result_array->document_results[0]->OK) {
+        // Submission okay
+        $submission_result["success"] =  TRUE;
+        $submission_result["doc_id"] = $result_array->document_results[0]->doc_ID;
+      } else {
+        $submission_result["success"] = FALSE;
+        if (!is_null($result_array->document_results[0]->error))
+          $submission_result["error_message"] = $result_array->document_results[0]->error;
+        else {
+          // If the error message comes back in form of a HTML page, let's just
+          // pop off the title tag as Couch will tell us what's wrong there.
+          // Current impl of LR spits two title tags, so we're grabbing the last one
+          // as it displays better error message.  If not two present, we'd just grab
+          // the first.
+          if (strpos($result, "<html") > 0) {
+            $start = strripos($result, "<title>");
+            $end = strripos($result, "</title");
+            $submission_result["error_message"] = substr($result, $start+7, $end - $start - 7); // what's between the title tags (+7 skips first title tag)
+        }
+      }
+    }
+  } else {
+    // We didn't contact the Learning Registry service, must be a network error
+     $submission_result["SUCCESS"] = FALSE;
+     $submission_result["error_message"] = $error;
+  }
+  
+  return $submission_result;
+}
 /**
  * Queues a node for submission to the LR via the lr_publish table
  *
