@@ -66,9 +66,9 @@ function lr_publish_admin_settings() {
 
   $form['lr_publish_queuing'] = array(
     '#type' => 'radios',
-    '#title' => t('Immediate or Batch Publishing'),
+    '#title' => t('Immediate or Queued Publishing'),
     '#default_value' => variable_get('lr_publish_queuing', 0),
-    '#description' => t('Selects if submissions to the Learning Registry will publish immediately or queued to publish when cron executes.'),
+    '#description' => t('Selects if submissions to the Learning Registry will publish immediately or queued in a batch to publish when cron executes.'),
     '#options' => array(t('Immediate'), t('Queued')),
     '#required' => TRUE,
   );
