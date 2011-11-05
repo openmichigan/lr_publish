@@ -304,7 +304,7 @@ function _lr_send_to_registry($nid, $json, $service_num = 0, $headless = FALSE) 
     $result = _lr_update_submission_status($nid, $result);
     
     if (!$headless) {
-      $submissionURL = variable_get('lr_publish_node_url', NULL)."/harvest/getrecord?by_doc_ID=TRUE&request_id=".$result;
+      $submissionURL = variable_get('lr_publish_node_url', NULL)."/harvest/getrecord?by_doc_ID=TRUE&request_ID=".$result;
       drupal_set_message(sprintf( 'Node ID %d published to the registry. <a href="%s" target="_new">(View node on registry.)</a>', $nid, $submissionURL), "status");
     }
     
