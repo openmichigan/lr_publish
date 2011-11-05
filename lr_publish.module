@@ -72,7 +72,12 @@ function lr_publish_nodeapi(&$node, $op) {
   switch($op) {
     case 'insert':
       if ($node->status == 1) {
-        _lr_publish_publish($node);
+        
+        if (variable_get('lr_publish_queuing', 0) == 1) {
+         _lr_queue_node($node->nid); 
+        } else {
+          _lr_publish_publish($node);
+        }
       }
       break;
     // case 'update':
@@ -141,7 +146,6 @@ function _lr_publish_bulk_operations_publish($nids) {
     drupal_set_message($success.' nodes queued to the registry. '.$failure.' nodes failed.' );
  else
     drupal_set_message($success.' nodes published to the registry. '.$failure.' nodes failed.' );
-  
 }
 
 /**
