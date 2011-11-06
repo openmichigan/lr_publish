@@ -72,7 +72,12 @@ function lr_publish_nodeapi(&$node, $op) {
   switch($op) {
     case 'insert':
       if ($node->status == 1) {
-        _lr_publish_publish($node);
+        
+        if (variable_get('lr_publish_queuing', 0) == 1) {
+         _lr_queue_node($node->nid); 
+        } else {
+          _lr_publish_publish($node);
+        }
       }
       break;
     // case 'update':
@@ -108,6 +113,42 @@ function lr_publish_cron() {
 }
 
 /**
+ * Implementation of hook_node_operations()
+ * 
+ * Allows for publishing using the bulk operations content page.
+ */
+function lr_publish_node_operations() {
+  return array(
+    'process_orders' => array(
+    'label' => 'Publish to Learning Registry',
+    'callback' => '_lr_publish_bulk_operations_publish',
+    'disabled' => TRUE,
+  ));
+}
+
+/**
+ * Callback function for lr_publish_node_operations()
+ */
+function _lr_publish_bulk_operations_publish($nids) {
+  $success = 0; $failure = 0;
+  
+  foreach ($nids as $nid) {
+    // Load the node
+    $node = node_load($nid);
+    // Send it to the Learning Registry
+    $result = _lr_publish_publish($node, TRUE);
+    
+    // If successful, update the count.
+    if ($result) { $success++; } 
+  }
+  
+  if (variable_get('lr_publish_queuing', 0) == 1)
+    drupal_set_message($success.' nodes queued to the registry. '.$failure.' nodes failed.' );
+ else
+    drupal_set_message($success.' nodes published to the registry. '.$failure.' nodes failed.' );
+}
+
+/**
  * Publish node metadata to specified Learning Registry node.
  *
  * @param object &$node
@@ -117,6 +158,9 @@ function lr_publish_cron() {
  * 
  * @param bool $headless
  *   A flag to determine if this is called from cron (non-user session).
+ * 
+ * @return bool $result
+ *   Returns TRUE if operation was successful, FALSE if not.
  */
 function _lr_publish_publish(&$node, $headless = FALSE) {
   $content_info = _lr_get_content_info(&$node);
@@ -128,7 +172,8 @@ function _lr_publish_publish(&$node, $headless = FALSE) {
   $resource_post_payload = json_encode($prepared_submission);
   //watchdog('lr_publish', $resource_post_payload, array(), WATCHDOG_DEBUG);
 
-  _lr_send_to_registry($node->nid, $resource_post_payload, 0, $headless);
+  $result = _lr_send_to_registry($node->nid, $resource_post_payload, 0, $headless);
+  return $result;
 }
 
 
@@ -182,8 +227,7 @@ function _lr_get_content_info(&$node) {
   $content_info['payload_schema'] = "DC 1.1";
 
   $resource_data=_lr_create_dublincore_payload($node);
-  
-
+ 
   $content_info['resource_data'] = $resource_data;
 
   return $content_info;
@@ -201,14 +245,11 @@ function _lr_get_content_info(&$node) {
  */
 function _lr_get_node_url(&$node) {
   
-  $nodePath = url("node/".$node->nid, array("absolute" => TRUE));
-  $aliasPath = drupal_lookup_path('alias',"node/".$node->nid);
-  if ($aliasPath) { 
-    $aliasPath = url($aliasPath, array("absolute" => TRUE));
-    $nodePath = $aliasPath; 
-  }
-  
-  return $nodePath;
+  // URL Type is an admin setting.  Return either alias or node ID.
+  if (variable_get('lr_publish_url_type', 0) == 1)
+    return url("node/".$node->nid, array("absolute" => TRUE, "alias" => FALSE));
+  else
+    return url("node/".$node->nid, array("absolute" => TRUE, "alias" => TRUE));
 }
 
 /**
@@ -227,6 +268,9 @@ function _lr_get_node_url(&$node) {
  *    2 - delete
  * @param bool $headless
  *    A flag to determine if this is called from cron (non-user session).
+ * 
+ * @return bool $result
+ *    True if operation was successful, false if error.
  */
 function _lr_send_to_registry($nid, $json, $service_num = 0, $headless = FALSE) {
   $services = array(
@@ -253,16 +297,28 @@ function _lr_send_to_registry($nid, $json, $service_num = 0, $headless = FALSE) 
   // file_put_contents("/tmp/foo.json", $json);
   curl_setopt_array($ch, $curl_options);
   $result=curl_exec($ch);
+  $error = curl_error($ch);
+  curl_close($ch);
+  
+  $submission_result = _lr_parse_result($result, $error);
+  
+  // dsm($submission_result);
 
   if ($result) {
     $result = _lr_update_submission_status($nid, $result);
     
     if (!$headless) {
-      $submissionURL = variable_get('lr_publish_node_url', NULL)."/harvest/getrecord?by_doc_ID=TRUE&request_id=".$result;
-      drupal_set_message('Node published to the registry. <a href="'.$submissionURL.'" target="_new">(View node on registry.)</a>', "status");
+      $submissionURL = variable_get('lr_publish_node_url', NULL)."/harvest/getrecord?by_doc_ID=TRUE&request_ID=".$result;
+      drupal_set_message(sprintf( 'Node ID %d published to the registry. <a href="%s" target="_new">(View node on registry.)</a>', $nid, $submissionURL), "status");
     }
-  } elseif (!$headless) {
-    drupal_set_message("Error publishing node to registry.", "warning");
+    
+    return TRUE;
+  } else {
+    if (!$headless) {
+      drupal_set_message("Error publishing node to registry.", "warning");
+    }
+    
+    return FALSE;
   }
   
 }
@@ -412,6 +468,8 @@ function _lr_add_resource_data_to_submission($submission, $resource_data) {
  *
  */
 function _lr_update_submission_status($nid, $result) {
+  //TODO:  Refactor candidate.  This method has two responsiblities:  a.) to determine if the node was published to
+  // the Learning Registry, b.) then to update that status to the lr_publish table.  The first step should stand on its own.
   if ($result) {
 
     $result_array = json_decode($result);
@@ -420,7 +478,6 @@ function _lr_update_submission_status($nid, $result) {
     // check to see if submission already in database
       $submission_check_result = db_query('SELECT * FROM {lr_publish} WHERE nid = %d', $nid);
       $submission_record = db_fetch_object($submission_check_result);
-      
       
       // Check if this has been published before.  If no, set the published timestamp.  Else,
       // the updated timestamp.
@@ -452,11 +509,89 @@ function _lr_update_submission_status($nid, $result) {
           array ('%nid' => $nid,'%msg' => $result));
       return false;
     }
-
   }
-
 }
 
+/** 
+ * Parse out result from Learning Registry submission
+ * 
+ * @param object $result
+ *    JSON array result from Learning Registry submission
+ * 
+ * @param string $error
+ *    Error string from curl (if error occured)
+ *
+ * @return object $submission_result
+ *    Array with status information from submission
+ */
+function _lr_parse_result($result, $error) {
+  $submission_result = array();
+  
+    if ($result) {
+      // We have something back from the Learning Registry service
+      $result_array = json_decode($result);
+
+      if ($result_array->document_results[0]->OK) {
+        // Submission okay
+        $submission_result["success"] =  TRUE;
+        $submission_result["doc_id"] = $result_array->document_results[0]->doc_ID;
+      } else {
+        $submission_result["success"] = FALSE;
+        if (!is_null($result_array->document_results[0]->error))
+          $submission_result["error_message"] = $result_array->document_results[0]->error;
+        else {
+          // If the error message comes back in form of a HTML page, let's just
+          // pop off the title tag as Couch will tell us what's wrong there.
+          // Current impl of LR spits two title tags, so we're grabbing the last one
+          // as it displays better error message.  If not two present, we'd just grab
+          // the first.
+          if (strpos($result, "<html") > 0) {
+            $start = strripos($result, "<title>");
+            $end = strripos($result, "</title");
+            $submission_result["error_message"] = substr($result, $start+7, $end - $start - 7); // what's between the title tags (+7 skips first title tag)
+        }
+      }
+    }
+  } else {
+    // We didn't contact the Learning Registry service, must be a network error
+     $submission_result["SUCCESS"] = FALSE;
+     $submission_result["error_message"] = $error;
+  }
+  
+  return $submission_result;
+}
+/**
+ * Queues a node for submission to the LR via the lr_publish table
+ *
+ * @param int $nid
+ *    Drupal node ID of item to submit.
+ */
+function _lr_queue_node($nid) {
+  
+  // Check if this record exists in submission table
+  $submission_check_result = db_query('SELECT * FROM {lr_publish} WHERE nid = %d', $nid);
+  $submission_record = db_fetch_object($submission_check_result);
+  
+  // If exists, update, else insert new record
+  if ($submission_record) {
+    $sql = 'UPDATE {lr_publish} SET queued=1 WHERE nid = %d'; 
+  } else {
+    $sql = 'INSERT INTO {lr_publish} (nid, queued) VALUES (%d, 1)';    
+  }
+
+  // Write to database
+  db_query($sql, $nid);
+}
+
+/**
+ * Creates Dublin Core 1.1 XML document with information from node
+ *
+ * @param object $node
+ *    Drupal node
+ * 
+ * @return object $returnXML
+ *    XML document
+ */
 function _lr_create_dublincore_payload (&$node) {
   
   // Set the initial RDF XML DC envelope body.
